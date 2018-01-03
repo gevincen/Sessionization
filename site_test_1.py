@@ -60,6 +60,9 @@ schemaSess.createOrReplaceTempView("sesions_df")
 sess_res = spark.sql("select tid, vid, max(sid) as sid from sesions_df group by tid, vid ")
 sess_res_a = spark.sql(" select tid, sum(sid1) as uvid from (select tid, vid, max(sid) as sid1 from sesions_df group by tid, vid ) a group by tid order by uvid desc")
 
+# Answer 2: How many unique visitor sessions were included in each test
+sess_res_a.show()
+
 
 
 
