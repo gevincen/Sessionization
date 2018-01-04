@@ -43,7 +43,7 @@ rs4b = rs4a.T
 rs4b =  pd.concat([rs4b, rs4b.groupby('tidvid').transform(lambda x:x.shift(1))] ,axis=1)
 rs4b.columns= ['tidvid', 'ts', 'prevts']
 
-rs4b['new_session'] = ((rs4b['ts'] - rs4b['prevts'])>=T).astype(int)
+rs4b['new_session'] = ((rs4b['ts'] - rs4b['prevts'])>= 1800).astype(int)
 rs4b['increment'] = rs4b.groupby("tidvid")['new_session'].cumsum()
 rs4b['session_id'] = rs4b['tidvid'].astype(str) + '_' + rs4b['increment'].astype(str)
 
