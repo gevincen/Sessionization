@@ -1,4 +1,13 @@
-Use exit() or Ctrl-D (i.e. EOF) to exit
+Last login: Wed Jan  3 16:33:20 on ttys001
+George:~ georgevincent$ source pyspark
+Python 2.7.10 (default, Oct 23 2015, 18:05:06) 
+[GCC 4.2.1 Compatible Apple LLVM 7.0.0 (clang-700.0.59.5)] on darwin
+Type "help", "copyright", "credits" or "license" for more information.
+Using Spark's default log4j profile: org/apache/spark/log4j-defaults.properties
+Setting default log level to "WARN".
+To adjust logging level use sc.setLogLevel(newLevel). For SparkR, use setLogLevel(newLevel).
+18/01/03 23:06:14 WARN NativeCodeLoader: Unable to load native-hadoop library for your platform... using builtin-java classes where applicable
+18/01/03 23:06:28 WARN ObjectStore: Failed to get database global_temp, returning NoSuchObjectException
 Welcome to
       ____              __
      / __/__  ___ _____/ /__
@@ -8,11 +17,69 @@ Welcome to
 
 Using Python version 2.7.10 (default, Oct 23 2015 18:05:06)
 SparkSession available as 'spark'.
-
->>> rs2b.groupBy("tid").count().show()
+>>> from pyspark.sql.types import *
+>>> from pyspark.sql import Row
+>>> import pandas as pd  
+>>> from datetime import timedelta
+>>> from pyspark.sql.functions import concat, col, lit
+>>> 
+>>> # Step 1: Get the data into spark context table view
+... 
+>>> sc = spark.sparkContext
+>>> lines = sc.textFile("site_events.csv")
+>>> parts = lines.map(lambda l: l.split("\t"))
+>>> visitors = parts.map(lambda p: (int(p[0].strip()), p[1].strip(), p[2].strip(), p[3].strip()))
+>>> schemaString = "vid ed et tid"
+>>> fields = [StructField(field_name, StringType(), True) for field_name in schemaString.split()]
+>>> schema = StructType(fields)
+>>> schemaVisitors = spark.createDataFrame(visitors, schema)
+>>> schemaVisitors.createOrReplaceTempView("visitors")
+>>> spark.sql("SELECT count(*) FROM visitors ").show()
++--------+                                                                      
+|count(1)|
++--------+
+| 2799448|
++--------+
+>>> spark.sql("SELECT count(*) FROM visitors where tid <> '' ").show()
++--------+                                                                      
+|count(1)|
++--------+
+|  217392|
++--------+
+>>> spark.sql("SELECT count(*) FROM visitors where tid  = '' ").show()
++--------+                                                                      
+|count(1)|
++--------+
+| 2582056|
++--------+
+>>> spark.sql("SELECT count(*) FROM visitors where tid is null ").show()
++--------+                                                                      
+|count(1)|
++--------+
+|       0|
++--------+
+>>> rs0 = spark.sql("SELECT vid, ed, et, tid FROM visitors where tid <> '' order by vid, ed, et, tid")
+>>> rs0.count()
+217392
+>>> rs0a = rs0.dropDuplicates()
+>>> rs0a.count()
+21737
+>>> rs1 = spark.sql("SELECT vid, ed, et,  explode(split(tid, ',')) as tid1 FROM visitors where tid <> '' order by tid1, vid, ed, et")
+>>> rs1.count()
+1497182
+>>> rs1 = rs1.dropDuplicates()
+>>> rs1.count()
+1496978
+>>> rs2a = rs2a.dropDuplicates()
+>>> rs2a.count()
+654626 
+>>> rs2b = rs2a.selectExpr("tid" , "vid")
+>>> rs2b.dropDuplicates()
+DataFrame[tid: string, vid: string]
+>>> rs2b.groupBy("tid").count().show(30)
 +------+------+                                                                 
 |   tid| count|
-+------+------+
++------+------+            ************* ANS 1 *******************
 |190934|   261|
 |189555|  4026|
 |195100|   148|
@@ -33,13 +100,33 @@ SparkSession available as 'spark'.
 |193875|   142|
 |171715|     5|
 |194954|122024|
+|195389|   113|
+|192418| 17413|
+|176604|162336|
+|196552|  4495|
+|196195|   282|
+|188304|   325|
+|192181|130519|
 +------+------+
-only showing top 20 rows
-
->>> sess_res_a.show()
-18/01/03 15:19:34 WARN TaskSetManager: Stage 61 contains a task of very large size (21188 KB). The maximum recommended task size is 100 KB.
+>>> rs4 = rs3.toPandas()
+>>> rs4a = pd.DataFrame([rs4.tidvid, pd.to_datetime(rs4.ts)])
+>>> rs4b = rs4a.T
+>>> rs4b =  pd.concat([rs4b, rs4b.groupby('tidvid').transform(lambda x:x.shift(1))] ,axis=1)
+>>> rs4b.columns= ['tidvid', 'ts', 'prevts']
+>>> rs4b['new_session'] = ((rs4b['ts'] - rs4b['prevts'])>= 1800).astype(int)
+>>> rs4b['increment'] = rs4b.groupby("tidvid")['new_session'].cumsum()
+>>> rs4b['session_id'] = rs4b['tidvid'].astype(str) + '_' + rs4b['increment'].astype(str)
+>>> sessions_df = rs4b['session_id'].apply(lambda x: pd.Series(x.split('-')))
+>>> SessionschemaString = "tid vid sid"
+>>> Sessionfields = [StructField(field_name, StringType(), True) for field_name in SessionschemaString.split()]
+>>> Sessionschema = StructType(Sessionfields)
+>>> schemaSess = spark.createDataFrame(sesions_df, Sessionschema)
+>>> sess_res = spark.sql("select tid, vid, max(sid) as sid from sessions_df group by tid, vid ")
+>>> sess_res_a = spark.sql(" select tid, sum(sid1) as uvid from (select tid, vid, max(sid) as sid1 from sessions_df group by tid, vid ) a group by tid order by uvid desc")
+>>> sess_res_a.show(30)
+[Stage 113:>                                                        (0 + 0) / 2]18/01/04 12:05:54 WARN TaskSetManager: Stage 113 contains a task of very large size (21188 KB). The maximum recommended task size is 100 KB.
 +------+-------+                                                                
-|   tid|   uvid|
+|   tid|   uvid|                ************* ANS 2 *******************
 +------+-------+
 |176604|73980.0|
 |192181|64985.0|
@@ -61,5 +148,16 @@ only showing top 20 rows
 |155477|   52.0|
 |195100|   42.0|
 |190934|   32.0|
+|184721|   30.0|
+|195389|   27.0|
+|192265|    9.0|
+|193875|    8.0|
+|186601|    6.0|
+|196560|    2.0|
+|171715|    0.0|
 +------+-------+
-only showing top 20 rows
+
+
+
+
+
